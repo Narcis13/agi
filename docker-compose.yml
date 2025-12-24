@@ -1,0 +1,94 @@
+# Docker Compose file for local PostgreSQL development
+#
+# =============================================================================
+# WHAT IS DOCKER COMPOSE?
+# =============================================================================
+# Docker Compose is a tool that lets you define and run applications using
+# containers. Think of it as a recipe that tells Docker exactly how to set up
+# your database (and any other services you might need).
+#
+# A "container" is like a lightweight, isolated mini-computer that runs your
+# database. It keeps everything contained and doesn't mess with your system.
+#
+# =============================================================================
+# HOW TO USE THIS FILE
+# =============================================================================
+#
+# STARTING THE DATABASE:
+#   docker compose up -d
+#   (the -d flag means "detached" - it runs in the background)
+#
+# STOPPING THE DATABASE (keeps your data):
+#   docker compose down
+#
+# STOPPING AND DELETING ALL DATA:
+#   docker compose down -v
+#   (the -v flag removes the "volume" which stores your data)
+#
+# VIEWING LOGS:
+#   docker compose logs db
+#   (add -f to follow/stream logs: docker compose logs -f db)
+#
+# CHECKING STATUS:
+#   docker compose ps
+#
+# CONNECTING DIRECTLY TO DATABASE:
+#   docker exec -it agi-postgres psql -U postgres -d agi
+#   (this opens a PostgreSQL shell where you can run SQL commands)
+#
+# =============================================================================
+
+services:
+  # This defines a service named "db" - our PostgreSQL database
+  db:
+    # Use the official PostgreSQL image from Docker Hub, version 16
+    # This downloads a pre-configured PostgreSQL installation
+    image: postgres:16
+
+    # Give the container a friendly name so it's easy to identify
+    # You'll see this name when running "docker ps" or "docker compose ps"
+    container_name: agi-postgres
+
+    # Automatically restart the container if it crashes
+    # "unless-stopped" means it restarts unless you explicitly stop it
+    restart: unless-stopped
+
+    # Environment variables configure the database
+    # These are like settings that PostgreSQL reads when it starts
+    environment:
+      # The password for the default superuser (named "postgres")
+      # In production, use a strong password and keep it secret!
+      POSTGRES_PASSWORD: postgres
+
+      # The name of the default database to create
+      # This will be created automatically when the container first starts
+      POSTGRES_DB: agi
+
+      # The username for the default superuser
+      POSTGRES_USER: postgres
+
+    # Port mapping: HOST_PORT:CONTAINER_PORT
+    # This makes PostgreSQL accessible at localhost:5432 on your machine
+    # The container internally uses port 5432 (PostgreSQL's default)
+    ports:
+      - "5432:5432"
+
+    # Volumes persist data outside the container
+    # Without this, ALL your data would be lost when the container stops!
+    # The named volume "postgres_data" stores the database files
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    # Health check - Docker monitors if the database is actually ready
+    # This is useful because PostgreSQL takes a moment to start up
+    # Other services can wait for this to be "healthy" before connecting
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+# Named volumes are stored by Docker and persist between container restarts
+# Think of this as a "hard drive" for your container's database files
+volumes:
+  postgres_data:
