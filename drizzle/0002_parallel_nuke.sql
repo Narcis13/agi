@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "yet_another_test_field" text;
