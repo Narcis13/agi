@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1767609977119,
-      "tag": "0000_red_thaddeus_ross",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1767610076735,
-      "tag": "0001_goofy_wither",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1767610520614,
-      "tag": "0002_parallel_nuke",
+      "when": 1767634810718,
+      "tag": "0000_lame_ben_grimm",
       "breakpoints": true
     }
   ]

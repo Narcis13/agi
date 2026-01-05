@@ -1,1 +1,0 @@
-ALTER TABLE "users" ADD COLUMN "another_test_field" text;

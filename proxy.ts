@@ -2,9 +2,9 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
 /**
- * Next.js Middleware for Route Protection
+ * Next.js Proxy for Route Protection
  *
- * This middleware:
+ * This proxy:
  * - Protects routes that require authentication
  * - Redirects unauthenticated users to /login
  * - Stores originally requested URL for post-login redirect
@@ -20,7 +20,7 @@ const protectedRoutes = ["/dashboard"]
 // Routes that should redirect to dashboard if already authenticated
 const authRoutes = ["/login", "/register"]
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Check if user is authenticated by looking for Better Auth cookies
@@ -52,7 +52,7 @@ export function middleware(request: NextRequest) {
   return NextResponse.next()
 }
 
-// Configure which routes the middleware should run on
+// Configure which routes the proxy should run on
 export const config = {
   matcher: [
     /*
