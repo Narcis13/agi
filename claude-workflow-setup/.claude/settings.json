@@ -1,0 +1,131 @@
+{
+  "$schema": "https://claude.ai/schemas/claude-code-settings.json",
+  "plugins": [
+    "ralph-wiggum@claude-plugins-official",
+    "security-guidance@claude-plugins-official"
+  ],
+  "model": "claude-sonnet-4-5-20250929",
+  "permissions": {
+    "allow": [
+      "Bash(bun:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(git:*)",
+      "Bash(node:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(touch:*)",
+      "Bash(echo:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(sed:*)",
+      "Bash(awk:*)",
+      "Bash(curl:*)",
+      "Bash(jq:*)",
+      "Bash(**/ralph-wiggum/**)",
+      "Bash(bunx:*)",
+      "Bash(vitest:*)",
+      "Bash(eslint:*)",
+      "Bash(prettier:*)",
+      "Bash(tsc:*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf $HOME)",
+      "Bash(*sudo*)",
+      "Bash(*chmod 777*)",
+      "Bash(*> /dev/*)",
+      "Bash(*mkfs*)",
+      "Bash(*dd if=*)",
+      "Bash(*:(){ :|:& };:*)",
+      "Bash(*curl*|*bash*)",
+      "Bash(*wget*|*sh*)",
+      "Bash(git push*--force*)",
+      "Bash(git push*-f*)",
+      "Bash(*DROP TABLE*)",
+      "Bash(*DROP DATABASE*)",
+      "Bash(*TRUNCATE*)",
+      "Bash(*DELETE FROM*WHERE 1=1*)",
+      "Write(*.env)",
+      "Write(*.env.*)",
+      "Write(*secrets*)",
+      "Write(*credentials*)",
+      "Write(*.pem)",
+      "Write(*.key)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); if echo \"$INPUT\" | grep -qiE \"rm\\s+-rf\\s+[/~]|sudo|chmod\\s+777|mkfs|dd\\s+if=|fork\\s*bomb|>\\s*/dev/|DROP\\s+(TABLE|DATABASE)|TRUNCATE|eval\\s*\\(|exec\\s*\\(\"; then echo \"{\\\"decision\\\":\\\"block\\\",\\\"reason\\\":\\\"Dangerous command pattern detected\\\"}\"; else echo \"{\\\"continue\\\":true}\"; fi'"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r \".file_path // .path // empty\" 2>/dev/null); if echo \"$FILE\" | grep -qiE \"\\.(env|pem|key)$|secrets|credentials|password\"; then echo \"{\\\"decision\\\":\\\"block\\\",\\\"reason\\\":\\\"Cannot write to sensitive files\\\"}\"; else echo \"{\\\"continue\\\":true}\"; fi'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r \".file_path // .path // empty\" 2>/dev/null); if [[ \"$FILE\" == *.ts ]] || [[ \"$FILE\" == *.tsx ]]; then npx eslint --fix \"$FILE\" 2>/dev/null || true; fi; echo \"{\\\"continue\\\":true}\"'"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r \".file_path // .path // empty\" 2>/dev/null); if [[ \"$FILE\" == *.ts ]] || [[ \"$FILE\" == *.tsx ]]; then npx eslint --fix \"$FILE\" 2>/dev/null || true; fi; echo \"{\\\"continue\\\":true}\"'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'echo \"Session completed at $(date)\" >> .claude/session.log; echo \"{\\\"continue\\\":true}\"'"
+          }
+        ]
+      }
+    ]
+  },
+  "contextCompression": {
+    "enabled": true,
+    "threshold": 0.7
+  },
+  "autoCommit": false,
+  "gitSafeMode": true
+}

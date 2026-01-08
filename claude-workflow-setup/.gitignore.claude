@@ -1,0 +1,9 @@
+# Claude Code Workflow
+logs/
+.claude/session.log
+claude-output.log
+
+# Keep these tracked
+!.claude/settings.json
+!.claude/agents/
+!.claude/commands/

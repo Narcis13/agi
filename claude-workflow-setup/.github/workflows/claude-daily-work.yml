@@ -1,0 +1,274 @@
+# Claude Code Daily Autonomous Development Workflow
+# 
+# Workflow: Dimineața stabilești planul în DAILY_PLAN.md, Claude lucrează automat,
+# seara faci review și merge în main.
+#
+# Setup necesar:
+# 1. Adaugă ANTHROPIC_API_KEY în Settings > Secrets and variables > Actions
+# 2. Activează "Allow GitHub Actions to create and approve pull requests" în Settings > Actions > General
+
+name: Claude Daily Development
+
+on:
+  # Rulează automat în zilele de lucru la ora 9:00 Bucharest (7:00 UTC)
+  schedule:
+    - cron: '0 7 * * 1-5'
+  
+  # Permite rulare manuală din GitHub UI
+  workflow_dispatch:
+    inputs:
+      max_iterations:
+        description: 'Număr maxim de iterații Ralph loop'
+        required: false
+        default: '30'
+        type: string
+      branch:
+        description: 'Branch pe care să lucreze'
+        required: false
+        default: 'claude-work'
+        type: string
+
+# Previne rulări concurente
+concurrency:
+  group: claude-daily-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  WORK_BRANCH: ${{ github.event.inputs.branch || 'claude-work' }}
+  MAX_ITERATIONS: ${{ github.event.inputs.max_iterations || '30' }}
+
+jobs:
+  # Job 1: Verifică dacă există plan pentru azi
+  check-plan:
+    runs-on: ubuntu-latest
+    outputs:
+      has_plan: ${{ steps.check.outputs.has_plan }}
+      has_tasks: ${{ steps.check.outputs.has_tasks }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for DAILY_PLAN.md
+        id: check
+        run: |
+          if [ -f "DAILY_PLAN.md" ]; then
+            echo "has_plan=true" >> $GITHUB_OUTPUT
+            # Verifică dacă există task-uri necompletate
+            if grep -q "^\- \[ \]" DAILY_PLAN.md; then
+              echo "has_tasks=true" >> $GITHUB_OUTPUT
+              echo "✅ Found uncompleted tasks in DAILY_PLAN.md"
+            else
+              echo "has_tasks=false" >> $GITHUB_OUTPUT
+              echo "⚠️ No uncompleted tasks found"
+            fi
+          else
+            echo "has_plan=false" >> $GITHUB_OUTPUT
+            echo "has_tasks=false" >> $GITHUB_OUTPUT
+            echo "❌ DAILY_PLAN.md not found"
+          fi
+
+  # Job 2: Claude lucrează pe task-uri
+  implement:
+    needs: check-plan
+    if: needs.check-plan.outputs.has_tasks == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Git
+        run: |
+          git config user.name "Claude Code Bot"
+          git config user.email "claude-bot@users.noreply.github.com"
+      
+      - name: Create or checkout work branch
+        run: |
+          git fetch origin
+          if git show-ref --verify --quiet refs/remotes/origin/${{ env.WORK_BRANCH }}; then
+            git checkout ${{ env.WORK_BRANCH }}
+            git pull origin ${{ env.WORK_BRANCH }}
+          else
+            git checkout -b ${{ env.WORK_BRANCH }}
+          fi
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      
+      - name: Install Claude Code
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          echo "Claude Code installed successfully"
+      
+      - name: Install Ralph Wiggum Plugin
+        run: |
+          claude /plugin install ralph-wiggum@claude-plugins-official || true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      
+      - name: Install project dependencies
+        run: |
+          if [ -f "package.json" ]; then
+            if [ -f "bun.lockb" ]; then
+              bun install
+            elif [ -f "package-lock.json" ]; then
+              npm ci
+            else
+              npm install
+            fi
+          fi
+      
+      - name: Run Claude with Ralph Loop
+        id: claude-work
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # Salvează timpul de start
+          echo "start_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+          
+          # Rulează Claude cu Ralph Wiggum loop
+          claude -p '/ralph-loop "
+          Read DAILY_PLAN.md and implement all tasks marked with [ ].
+          
+          ## Your Process
+          For each uncompleted task [ ]:
+          1. Read the task description carefully
+          2. Read relevant existing code files first
+          3. Plan the implementation (think step by step)
+          4. Implement following the conventions in CLAUDE.md
+          5. Write or update tests if applicable
+          6. Run tests to verify: bun test or npm test
+          7. If tests pass, mark task as [x] in DAILY_PLAN.md
+          8. Git commit with descriptive conventional commit message
+          9. Move to next task
+          
+          ## Error Handling
+          - If a task fails after 3 attempts, mark it as [BLOCKED: reason] and continue
+          - If tests fail, analyze error, fix, and retry
+          - Document any blockers in BLOCKED.md
+          
+          ## Completion
+          - When ALL tasks are marked [x] or [BLOCKED], output <promise>ALL_DONE</promise>
+          - If more than 50% tasks blocked, output <promise>NEEDS_HELP</promise>
+          
+          ## Important Rules
+          - Never modify files outside the project directory
+          - Always run linter before committing
+          - Follow TypeScript best practices
+          - Use existing patterns from the codebase
+          " --max-iterations ${{ env.MAX_ITERATIONS }} --completion-promise "ALL_DONE"' \
+          2>&1 | tee claude-output.log || true
+          
+          echo "end_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+      
+      - name: Commit any remaining changes
+        run: |
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: final changes from Claude session $(date +%Y-%m-%d)"
+          fi
+      
+      - name: Push changes
+        run: |
+          git push origin ${{ env.WORK_BRANCH }}
+      
+      - name: Generate summary
+        id: summary
+        run: |
+          # Numără task-urile completate
+          COMPLETED=$(grep -c "^\- \[x\]" DAILY_PLAN.md 2>/dev/null || echo "0")
+          BLOCKED=$(grep -c "^\- \[BLOCKED" DAILY_PLAN.md 2>/dev/null || echo "0")
+          REMAINING=$(grep -c "^\- \[ \]" DAILY_PLAN.md 2>/dev/null || echo "0")
+          TOTAL=$((COMPLETED + BLOCKED + REMAINING))
+          
+          echo "completed=$COMPLETED" >> $GITHUB_OUTPUT
+          echo "blocked=$BLOCKED" >> $GITHUB_OUTPUT
+          echo "remaining=$REMAINING" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+      
+      - name: Create or update Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ env.WORK_BRANCH }}
+          base: main
+          title: "🤖 Daily Implementation - ${{ github.run_number }}"
+          body: |
+            ## Claude Daily Development Report
+            
+            **Date:** $(date +%Y-%m-%d)
+            **Session Duration:** ${{ steps.claude-work.outputs.start_time }} → ${{ steps.claude-work.outputs.end_time }}
+            
+            ### Task Summary
+            | Status | Count |
+            |--------|-------|
+            | ✅ Completed | ${{ steps.summary.outputs.completed }} |
+            | 🚫 Blocked | ${{ steps.summary.outputs.blocked }} |
+            | ⏳ Remaining | ${{ steps.summary.outputs.remaining }} |
+            | **Total** | **${{ steps.summary.outputs.total }}** |
+            
+            ### Changes
+            See commit history for detailed changes.
+            
+            ### Review Checklist
+            - [ ] Code follows project conventions
+            - [ ] Tests pass locally
+            - [ ] No security issues
+            - [ ] Ready for merge
+            
+            ---
+            *This PR was automatically created by Claude Code.*
+          labels: |
+            automated
+            claude-code
+          draft: false
+      
+      - name: Upload Claude output log
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-session-log
+          path: claude-output.log
+          retention-days: 7
+
+  # Job 3: Notificare dacă nu există plan
+  notify-no-plan:
+    needs: check-plan
+    if: needs.check-plan.outputs.has_plan == 'false' || needs.check-plan.outputs.has_tasks == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create reminder issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date().toISOString().split('T')[0];
+            
+            // Verifică dacă există deja un issue pentru azi
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'daily-plan-missing',
+              state: 'open'
+            });
+            
+            const todayIssue = issues.data.find(i => i.title.includes(today));
+            
+            if (!todayIssue) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `📋 Daily Plan Missing - ${today}`,
+                body: `## No tasks found for today\n\nThe scheduled Claude Code workflow ran but found no uncompleted tasks in \`DAILY_PLAN.md\`.\n\n### Action Required\n1. Update \`DAILY_PLAN.md\` with today's tasks\n2. Use the format: \`- [ ] Task description\`\n3. Push changes to trigger the workflow manually\n\n### Manual Trigger\nYou can manually trigger the workflow from Actions tab after updating the plan.`,
+                labels: ['daily-plan-missing', 'automated']
+              });
+            }
