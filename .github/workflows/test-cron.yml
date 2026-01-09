@@ -1,0 +1,13 @@
+name: Test GitHub Actions Cron
+
+on:
+  schedule:
+    - cron: "33 12 * * *"
+  workflow_dispatch:  
+
+jobs:
+  test_job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say hello
+        run: echo "Test GitHub Actions"
